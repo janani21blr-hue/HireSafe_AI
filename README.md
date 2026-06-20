@@ -14,3 +14,18 @@ HireSafe AI is an automated verification layer designed to protect students and 
 * **Backend:** FastAPI, Python
 * **AI Layer:** Google GenAI SDK (Gemini 2.5 Flash)
 
+## 💻 How to Run Locally
+
+1. **Clone the repository:**
+```bash
+   git clone https://github.com/janani21blr-hue/HireSafe_AI.git
+   cd HireSafe_AI
+```
+
+2. **Install dependencies:**
+```bash
+   pip install -r requirements.txt
+```
+
+3. **Set up your API key:**
+   Create a `.env` file in the root directory and add:
