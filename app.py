@@ -51,7 +51,8 @@ if st.button("Analyze Posting for Risks", type="primary"):
                 st.success(f"✅ Scam Risk Score: {score}/100")
                 
         with col2:
-            st.metric(label="AI Confidence Level", value=confidence)
+            display_confidence = confidence.replace(" (Fallback)", " ⚡")
+            st.metric(label="AI Confidence Level", value=display_confidence)
             
         with col3:
             if review_needed:
@@ -68,11 +69,12 @@ if st.button("Analyze Posting for Risks", type="primary"):
             st.write("No suspicious patterns or behavioral signals were identified.")
         else:
             for reason in results["reasons"]:
-                # Style the different layers so judges see your hybrid approach
                 if reason.startswith("Heuristic:"):
                     st.markdown(f"- ⚙️ **[Rule Engine]** {reason.replace('Heuristic:', '').strip()}")
                 elif reason.startswith("Identity Layer:"):
                     st.markdown(f"- 🌐 **[Domain Verifier]** {reason.replace('Identity Layer:', '').strip()}")
+                elif reason.startswith("ML Classifier:"):
+                    st.markdown(f"- 📊 **[ML Classifier]** {reason.replace('ML Classifier:', '').strip()}")
                 else:
                     st.markdown(f"- 🤖 **[AI Intuition]** {reason}")
                     

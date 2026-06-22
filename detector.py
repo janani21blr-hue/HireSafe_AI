@@ -1,6 +1,7 @@
 import os
 import re
 import json
+import joblib
 from dotenv import load_dotenv
 from pydantic import BaseModel
 from google import genai
@@ -12,29 +13,32 @@ from utils.verifier import verify_company_identity
 # 1. Load the API key from your .env file
 load_dotenv()
 
+# --- LOAD MACHINE LEARNING MODEL ---
+MODEL_PATH = os.path.join(os.path.dirname(__file__), 'ml_model', 'scam_classifier.pkl')
+try:
+    ml_pipeline = joblib.load(MODEL_PATH)
+    print("🧠 ML Classifier loaded successfully.")
+except FileNotFoundError:
+    ml_pipeline = None
+    print("⚠️ Warning: ML model not found. Run train.py first.")
+
 # 2. Initialize the Gemini Client
-client = genai.Client()
+client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
 
 # 3. Heuristic Rule Engine (Instant, Cost-Zero Check)
 def run_heuristic_check(text: str) -> dict:
-    """
-    Scans for obvious local red flags instantly using regex.
-    """
     red_flags = []
     score_increment = 0
     
-    # Check for direct suspicious contact methods
     if re.search(r'\+91[-\s]?\d{10}', text) or re.search(r'WhatsApp', text, re.IGNORECASE):
         if re.search(r'(advance|deposit|fee|pay|money|security)', text, re.IGNORECASE):
             red_flags.append("Heuristic: Direct WhatsApp contact combined with payment language detected.")
             score_increment += 40
 
-    # Check for generic emails masking as corporate
     if re.search(r'@[gG]mail\.com|@[yY]ahoo\.com|@outlook\.com', text):
         red_flags.append("Heuristic: Job posting uses a public domain email (Gmail/Yahoo) instead of a corporate domain.")
         score_increment += 30
         
-    # Check for upfront payment keywords
     if re.search(r'(registration fee|security deposit|laptop charges|training fee)', text, re.IGNORECASE):
         red_flags.append("Heuristic: Explicit mention of upfront payment or onboarding fees.")
         score_increment += 50
@@ -53,11 +57,13 @@ class JobAnalysisSchema(BaseModel):
 
 # 5. Main Analyzer Pipeline
 def analyze_job_description(job_text: str) -> dict:
-    """
-    Combines the heuristic rule engine, domain verification, and Gemini LLM analysis.
-    """
     # Run linguistics heuristics
     heuristics = run_heuristic_check(job_text)
+
+    # --- MACHINE LEARNING PREDICTION ---
+    ml_scam_probability = 0
+    if ml_pipeline:
+        ml_scam_probability = round(ml_pipeline.predict_proba([job_text])[0][1] * 100, 2)
     
     # Run identity verification check
     domain_results = verify_company_identity(job_text)
@@ -90,35 +96,31 @@ def analyze_job_description(job_text: str) -> dict:
             "is_ambiguous": True
         }
 
-    # Combine linguistic heuristics and AI scores
-    base_score = max(heuristics["heuristic_score"], ai_analysis["scam_score"])
-    all_reasons = heuristics["heuristic_reasons"] + ai_analysis["ai_reasons"]
+    # Combine all three scores
+    base_score = max(heuristics["heuristic_score"], ml_scam_probability, ai_analysis["scam_score"])
+    all_reasons = heuristics["heuristic_reasons"] + [f"ML Classifier: {ml_scam_probability}% scam probability (TF-IDF + Logistic Regression)"] + ai_analysis["ai_reasons"]
     
     # Apply Domain Identity Verification Weights
     if domain_results["status"] == "NO_DOMAIN":
-        # No email or website link found increases risk slightly if it wasn't already maxed out
         base_score = min(base_score + 15, 100)
         all_reasons.append(domain_results["message"])
     else:
         for msg in domain_results["messages"]:
             all_reasons.append(f"Identity Layer: {msg}")
-            # If an official corporate domain is verified, give a significant safety credit
             if "✅ Identity Verified:" in msg:
                 base_score = max(base_score - 30, 0)
-            # If an unverified domain is used, add minor penalty
             if "⚠️ Unrecognized Domain:" in msg:
                 base_score = min(base_score + 20, 100)
 
     return {
         "final_risk_score": int(base_score),
+        "ml_probability_score": ml_scam_probability,
         "confidence": ai_analysis["confidence_level"],
         "reasons": all_reasons,
         "requires_manual_review": ai_analysis["is_ambiguous"] or (40 < base_score < 70)
     }
 
-# --- QUICK TEST EXECUTION ---
 if __name__ == "__main__":
-    # Test with a mock safe email matching our verification dictionary
     sample_safe = """
     Software Engineering Intern opening at Infosys.
     Looking for proficiency in Python and basic database management.

@@ -1,3 +1,9 @@
 google-genai
 streamlit
 python-dotenv
+fastapi
+uvicorn
+pydantic
+scikit-learn
+joblib
+pandas
